@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>介護経営BEPシミュレーター Pro+</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root { --primary: #2c3e50; --accent: #3498db; --success: #27ae60; --danger: #e74c3c; --light: #ecf0f1; }
+        body { font-family: sans-serif; background: #f0f2f5; margin: 0; padding: 20px; color: var(--primary); }
+        .card { background: white; padding: 25px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); max-width: 650px; margin: auto; position: relative; }
+        
+        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--light); padding-bottom: 15px; margin-bottom: 20px; }
+        h1 { font-size: 1.25rem; margin: 0; color: var(--primary); }
+        .settings-btn { background: var(--light); border: none; border-radius: 50%; width: 40px; height: 40px; cursor: pointer; font-size: 1.2rem; transition: 0.3s; }
+        .settings-btn:hover { background: #dee2e6; transform: rotate(30deg); }
+
+        .input-group { margin-bottom: 18px; }
+        label { display: block; font-size: 0.85rem; font-weight: bold; margin-bottom: 6px; color: #555; }
+        input[type="number"], input[type="text"] { width: 100%; padding: 12px; border: 1.5px solid #dde; border-radius: 8px; box-sizing: border-box; font-size: 1rem; outline: none; }
+        input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1); }
+
+        .result-box { background: var(--primary); color: white; padding: 20px; border-radius: 12px; margin-top: 25px; text-align: center; }
+        .result-val { font-size: 1.8rem; font-weight: bold; color: #f1c40f; display: block; margin: 5px 0; }
+        
+        /* モーダル */
+        #settings-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 100; align-items: center; justify-content: center; }
+        .modal { background: white; width: 95%; max-width: 550px; border-radius: 16px; padding: 25px; max-height: 90vh; overflow-y: auto; }
+        
+        /* 動的リスト */
+        .cost-list-item { display: flex; gap: 8px; margin-bottom: 10px; align-items: center; }
+        .cost-name { flex: 2; }
+        .cost-val { flex: 1; }
+        .btn-del { background: none; border: none; color: var(--danger); cursor: pointer; font-size: 1.2rem; padding: 0 5px; }
+        .btn-add { background: var(--light); border: 1.5px dashed #ccc; width: 100%; padding: 8px; border-radius: 8px; cursor: pointer; margin-top: 5px; font-weight: bold; color: #666; }
+        .btn-add:hover { background: #e8eef0; }
+
+        .save-btn { width: 100%; background: var(--success); color: white; border: none; padding: 14px; border-radius: 8px; font-weight: bold; cursor: pointer; margin-top: 20px; font-size: 1rem; }
+        .info { font-size: 0.8rem; color: #7f8c8d; margin-top: 15px; line-height: 1.5; background: #f9f9f9; padding: 12px; border-radius: 8px; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <div class="header">
+        <h1>介護経営BEPシミュレーター</h1>
+        <button class="settings-btn" onclick="toggleSettings()">⚙️</button>
+    </div>
+    
+    <div class="input-group">
+        <label>① 施設定員 (名)</label>
+        <input type="number" id="input-capacity" value="100" oninput="calculate()">
+    </div>
+
+    <div class="input-group">
+        <label>② 平均利用単価 (円/日)</label>
+        <input type="number" id="input-price" value="12000" step="100" oninput="calculate()">
+    </div>
+
+    <div class="input-group">
+        <label>③ 月間固定費 合計 (万円)</label>
+        <input type="number" id="input-fixed" value="3000" step="10" oninput="calculate()">
+        <p style="font-size: 0.75rem; color: #e67e22; margin: 4px 0 0 0;">※右上の⚙️ボタンから詳細内訳を管理できます</p>
+    </div>
+
+    <div class="result-box">
+        <span style="font-size: 0.9rem; opacity: 0.9;">損益分岐点 稼働率</span>
+        <span class="result-val" id="res-bep-rate">0.0 %</span>
+        <div style="font-size: 0.9rem; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 10px; margin-top: 10px;">
+            損益分岐点 利用者数: <strong id="res-bep-users">0</strong> 名/日
+        </div>
+    </div>
+
+    <canvas id="bepChart"></canvas>
+
+    <div class="info">
+        <strong>【経営のヒント】</strong><br>
+        「固定費」を細分化することで、どの経費が経営を圧迫しているか可視化できます。定員100名の施設では、わずか1%の稼働率変動が大きな収支差を生みます。
+    </div>
+</div>
+
+<div id="settings-overlay">
+    <div class="modal">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h2 style="font-size: 1.1rem; margin: 0;">詳細設定（初期値・固定費）</h2>
+            <button style="background:none; border:none; font-size:1.5rem; cursor:pointer;" onclick="toggleSettings()">×</button>
+        </div>
+        
+        <div style="margin-bottom: 20px;">
+            <p style="font-weight: bold; font-size: 0.9rem; margin-bottom: 12px; color: var(--accent); border-left: 4px solid var(--accent); padding-left: 8px;">固定費の内訳 (月額/万円)</p>
+            
+            <div id="fixed-cost-container">
+                <div class="cost-list-item">
+                    <input type="text" class="cost-name" value="人件費">
+                    <input type="number" class="cost-val" value="2000" oninput="sumFixedCosts()">
+                    <button class="btn-del" onclick="removeRow(this)">×</button>
+                </div>
+                <div class="cost-list-item">
+                    <input type="text" class="cost-name" value="賃料・リース">
+                    <input type="number" class="cost-val" value="500" oninput="sumFixedCosts()">
+                    <button class="btn-del" onclick="removeRow(this)">×</button>
+                </div>
+                <div class="cost-list-item">
+                    <input type="text" class="cost-name" value="光熱費・厨房費">
+                    <input type="number" class="cost-val" value="500" oninput="sumFixedCosts()">
+                    <button class="btn-del" onclick="removeRow(this)">×</button>
+                </div>
+            </div>
+            <button class="btn-add" onclick="addRow()">+ 項目を追加</button>
+            
+            <div style="text-align: right; font-weight: bold; margin-top: 15px; font-size: 1.1rem;">
+                合計: <span id="detail-total" style="color: var(--danger);">3000</span> 万円
+            </div>
+        </div>
+
+        <div style="border-top: 1px solid #eee; pt: 15px; margin-top: 15px;">
+            <p style="font-weight: bold; font-size: 0.9rem; margin-bottom: 10px; color: var(--accent); border-left: 4px solid var(--accent); padding-left: 8px;">変動費率設定</p>
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <label style="flex: 1; margin:0;">変動費率 (%)</label>
+                <input type="number" id="input-var-rate" value="20" style="width: 100px;" oninput="calculate()">
+            </div>
+        </div>
+
+        <button class="save-btn" onclick="toggleSettings()">設定を適用して閉じる</button>
+    </div>
+</div>
+
+<script>
+    let myChart;
+
+    function toggleSettings() {
+        const overlay = document.getElementById('settings-overlay');
+        overlay.style.display = (overlay.style.display === 'flex') ? 'none' : 'flex';
+    }
+
+    // 行の追加
+    function addRow() {
+        const container = document.getElementById('fixed-cost-container');
+        const div = document.createElement('div');
+        div.className = 'cost-list-item';
+        div.innerHTML = `
+            <input type="text" class="cost-name" placeholder="項目名">
+            <input type="number" class="cost-val" value="0" oninput="sumFixedCosts()">
+            <button class="btn-del" onclick="removeRow(this)">×</button>
+        `;
+        container.appendChild(div);
+        sumFixedCosts();
+    }
+
+    // 行の削除
+    function removeRow(btn) {
+        btn.parentElement.remove();
+        sumFixedCosts();
+    }
+
+    // 固定費の合計計算
+    function sumFixedCosts() {
+        const vals = document.getElementsByClassName('cost-val');
+        let total = 0;
+        for (let v of vals) {
+            total += parseFloat(v.value) || 0;
+        }
+        document.getElementById('detail-total').innerText = total;
+        document.getElementById('input-fixed').value = total;
+        calculate();
+    }
+
+    function calculate() {
+        const capacity = parseFloat(document.getElementById('input-capacity').value) || 0;
+        const price = parseFloat(document.getElementById('input-price').value) || 0;
+        const fixedCostTotal = parseFloat(document.getElementById('input-fixed').value) || 0;
+        const fixedCostYen = fixedCostTotal * 10000; 
+        
+        const varRatePercent = parseFloat(document.getElementById('input-var-rate').value) || 0;
+        const variableCostRate = varRatePercent / 100;
+        const unitProfit = price * (1 - variableCostRate);
+
+        let bepUsersPerDay = 0;
+        let bepRate = 0;
+
+        if (unitProfit > 0 && capacity > 0) {
+            bepUsersPerDay = (fixedCostYen / unitProfit) / 30;
+            bepRate = (bepUsersPerDay / capacity) * 100;
+        }
+
+        document.getElementById('res-bep-rate').innerText = bepRate.toFixed(1) + " %";
+        document.getElementById('res-bep-users').innerText = bepUsersPerDay.toFixed(1);
+
+        updateChart(capacity, price, fixedCostYen, variableCostRate);
+    }
+
+    function updateChart(capacity, price, fixedCostYen, variableCostRate) {
+        const ctx = document.getElementById('bepChart').getContext('2d');
+        const labels = [0, 20, 40, 60, 80, 100];
+        
+        const revenueData = labels.map(r => (capacity * (r/100) * price * 30) / 10000);
+        const costData = labels.map(r => (fixedCostYen + (capacity * (r/100) * (price * variableCostRate) * 30)) / 10000);
+
+        if (myChart) myChart.destroy();
+
+        myChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels.map(l => l + "%"),
+                datasets: [
+                    { label: '収益 (万円)', data: revenueData, borderColor: '#27ae60', backgroundColor: 'rgba(39, 174, 96, 0.05)', fill: true, tension: 0.2 },
+                    { label: '総費用 (万円)', data: costData, borderColor: '#e74c3c', borderDash: [5, 5], fill: false, tension: 0.2 }
+                ]
+            },
+            options: {
+                responsive: true,
+                plugins: { legend: { position: 'bottom' } },
+                scales: { 
+                    y: { beginAtZero: true, title: { display: true, text: '月間金額 (万円)' } }
+                }
+            }
+        });
+    }
+
+    calculate();
+</script>
+</body>
+</html>
